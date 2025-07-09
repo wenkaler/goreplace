@@ -1,0 +1,16 @@
+# Локальные настройки
+.idea/
+*.swp
+.vscode/
+.DS_Store
+
+# Артефакты сборки
+bin/
+pkg/
+*.exe
+*.so
+*.dll
+
+# Файлы зависимостей
+vendor/
+go.mod.sum
