@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"flag"
 	"fmt"
 	"os"
@@ -21,13 +22,16 @@ const (
 )
 
 // Version of the application
-const Version = "1.1.0"
+const Version = "1.1.1"
 
 var (
-	showHelp     = flag.Bool("h", false, "Show help")
-	showHelpLong = flag.Bool("help", false, "Show help")
-	showVersion  = flag.Bool("version", false, "Show version")
-	maxInputLen  = 256 // Maximum allowed input length
+	showHelp         = flag.Bool("h", false, "Show help")
+	showHelpLong     = flag.Bool("help", false, "Show help")
+	showVersion      = flag.Bool("version", false, "Show version")
+	showShortVersion = flag.Bool("v", false, "Show version")
+	clearFlag        = flag.Bool("clear", false, "Remove all replace directives")
+	clearFlagShort   = flag.Bool("cl", false, "Short for -clear")
+	maxInputLen      = 256 // Maximum allowed input length
 )
 
 type Dependency struct {
@@ -41,7 +45,8 @@ func init() {
 		fmt.Println("Searches for matching dependencies in go.mod and replaces them with local path if found.")
 		fmt.Printf("\n%sOptions:%s\n", ColorYellow, ColorReset)
 		fmt.Println("  -h, --help      Show this help message")
-		fmt.Println("  -version        Show version information")
+		fmt.Println("  -v, --version   Show version information")
+		fmt.Println("  -cl, --clear    Remove all replace directives")
 		fmt.Printf("\n%sExample:%s\n", ColorYellow, ColorReset)
 		fmt.Println("  goreplace proto")
 	}
@@ -55,8 +60,19 @@ func main() {
 		return
 	}
 
-	if *showVersion {
+	if *showVersion || *showShortVersion {
 		fmt.Printf("goreplace version %s%s%s\n", ColorGreen, Version, ColorReset)
+		return
+	}
+
+	// Режим очистки replace-директив
+	if *clearFlag || *clearFlagShort {
+		if err := clearReplaces(); err != nil {
+			fmt.Printf("Error clearing replaces: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("All replace directives removed from go.mod")
+		printSuccess("You need run: go mod tidy - to update go.sum")
 		return
 	}
 
@@ -110,6 +126,7 @@ func main() {
 	}
 
 	printSuccess(fmt.Sprintf("Added replace: %s => %s", selected, localPath))
+	printSuccess("You need run: go mod tidy - to update go.sum")
 }
 
 func printError(msg string) {
@@ -291,4 +308,44 @@ func replaceInGoMod(module, localPath string) error {
 	}
 
 	return nil
+}
+
+func clearReplaces() error {
+	content, err := os.ReadFile("go.mod")
+	if err != nil {
+		return fmt.Errorf("reading go.mod: %w", err)
+	}
+
+	var buffer bytes.Buffer
+	lines := strings.Split(string(content), "\n")
+	inReplaceSection := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		if inReplaceSection {
+			if strings.HasPrefix(trimmed, ")") {
+				inReplaceSection = false
+			}
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "replace (") {
+			inReplaceSection = true
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "replace") {
+			continue
+		}
+
+		buffer.WriteString(line)
+		buffer.WriteByte('\n')
+	}
+
+	tmpFile := "go.mod.tmp"
+	if err := os.WriteFile(tmpFile, buffer.Bytes(), 0644); err != nil {
+		return fmt.Errorf("writing temp file: %w", err)
+	}
+	return os.Rename(tmpFile, "go.mod")
 }
